@@ -10,14 +10,33 @@ class Ball:
         self.width = 20
         self.height = 20
         self.velocity = 0
-        self.direction = 0
+        self.direction = math.pi / 2  # 기본 방향은 위쪽 (90도)
         self.image_path = os.path.join('src', 'assets', 'images', 'objects', 'ball.png')
         self.image = self._load_image(self.image_path)
         self.in_hole = False
-    
+        
+        # 조준선 이미지 추가
+        self.aim_line_width = 50  # 더 두껍게
+        self.aim_line_height = 50  # 더 길게
+        self.aim_line_path = os.path.join('src', 'assets', 'images', 'objects', 'aim_line.png')
+        self.aim_line = self._load_aim_line()
+        
     def _load_image(self, image_path):
+        """이미지를 로드하고 지정된 크기로 조정합니다."""
         image = Image.open(image_path)
         return image.resize((self.width, self.height), Image.Resampling.LANCZOS)
+        
+    def _load_aim_line(self):
+        """조준선 이미지를 로드하고 크기를 조정합니다."""
+        image = Image.open(self.aim_line_path)
+        return image.resize((self.aim_line_width, self.aim_line_height), Image.Resampling.LANCZOS)
+    
+    def get_rotated_aim_line(self):
+        """현재 방향에 따라 회전된 조준선 이미지를 반환합니다."""
+        angle = math.degrees(self.direction) - 90  # PIL 회전 각도 조정
+        rotated = self.aim_line.rotate(angle, expand=True, resample=Image.Resampling.BICUBIC)
+        new_width, new_height = rotated.size
+        return rotated, new_width, new_height
     
     def update(self):
         if self.velocity > 0 and not self.in_hole:
@@ -95,6 +114,9 @@ class GameScreen:
         self.score_display_time = 0
         self.SCORE_DISPLAY_DURATION = 180  # 3초 (60 FPS 기준)
         
+        # 방향 조절 속도 설정
+        self.direction_change_speed = math.pi / 180  # 1도씩 변환 (라디안)
+        
         # 스코어 이미지 미리 로드
         self.score_images = self._load_score_images()
     
@@ -104,7 +126,6 @@ class GameScreen:
         return bg.resize((self.width, self.height), Image.Resampling.LANCZOS)
 
     def _load_score_images(self):
-        """스코어 이미지들을 미리 로드합니다."""
         scores = {
             1: 'hole_in_one.png',
             2: 'birdie.png',
@@ -119,7 +140,6 @@ class GameScreen:
             path = os.path.join('src', 'assets', 'images', 'scores', filename)
             try:
                 image = Image.open(path)
-                # 화면 너비의 2/3 크기로 스코어 이미지 조정
                 target_width = int(self.width * 0.66)
                 ratio = target_width / image.width
                 target_height = int(image.height * ratio)
@@ -132,7 +152,6 @@ class GameScreen:
         return loaded_images
 
     def _show_score(self):
-        """샷 수에 따른 스코어 이미지를 설정합니다."""
         if self.shot_count in self.score_images:
             self.score_image = self.score_images[self.shot_count]
             self.score_display_time = self.SCORE_DISPLAY_DURATION
@@ -143,6 +162,12 @@ class GameScreen:
             return False
 
         if self.game_state == 'AIMING':
+            # 방향 조절 (좌우 키)
+            if inputs['left']:
+                self.ball.direction += self.direction_change_speed
+            if inputs['right']:
+                self.ball.direction -= self.direction_change_speed
+            
             if inputs['A']:  # A 버튼으로 파워 충전 시작
                 self.game_state = 'CHARGING'
                 self.golfer.is_charging = True
@@ -151,7 +176,6 @@ class GameScreen:
             self.golfer.update_power()
             if not inputs['A']:  # A 버튼을 떼면 샷
                 self.ball.velocity = self.golfer.power
-                self.ball.direction = math.pi / 2  # 위쪽으로 발사
                 self.golfer.power = 0
                 self.golfer.is_charging = False
                 self.game_state = 'SHOOTING'
@@ -185,11 +209,25 @@ class GameScreen:
         # 배경 이미지 복사
         game_image = self.background.copy()
         
-        # 깃발과 홀컵 그리기
+        # 홀컵 그리기
         game_image.paste(self.holecup.image, 
                         (int(self.holecup.x - self.holecup.width//2), 
                          int(self.holecup.y - self.holecup.height//2)), 
                         self.holecup.image)
+        
+        # 조준 상태일 때 조준선 그리기
+        if self.game_state == 'AIMING' and not self.ball.in_hole:
+            aim_line, line_width, line_height = self.ball.get_rotated_aim_line()
+            
+            # 회전된 이미지의 중심이 공의 중심에 오도록 위치 조정
+            line_x = int(self.ball.x - line_width//2)
+            line_y = int(self.ball.y - line_height//2)
+            
+            # 조준선이 공의 중심을 기준으로 회전하도록 위치 조정
+            offset = self.ball.height // 2  # 공의 반지름만큼 오프셋
+            line_y += offset
+            
+            game_image.paste(aim_line, (line_x, line_y), aim_line)
         
         # 골프공 그리기
         if not self.ball.in_hole:
@@ -214,7 +252,6 @@ class GameScreen:
 
         # 스코어 이미지 그리기
         if self.score_image and self.score_display_time > 0:
-            # 스코어 이미지를 화면 중앙에 배치
             score_x = (self.width - self.score_image.width) // 2
             score_y = (self.height - self.score_image.height) // 2
             game_image.paste(self.score_image, (score_x, score_y), self.score_image)
