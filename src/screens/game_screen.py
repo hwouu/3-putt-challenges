@@ -14,6 +14,7 @@ class Ball:
         self.image_path = os.path.join('src', 'assets', 'images', 'objects', 'ball.png')
         self.image = self._load_image(self.image_path)
         self.in_hole = False
+        self.bounce_damping = 0.7
         
         # 조준선 이미지 추가
         self.aim_line_width = 15  # 더 두껍게
@@ -40,9 +41,28 @@ class Ball:
     
     def update(self):
         if self.velocity > 0 and not self.in_hole:
-            self.x += math.cos(self.direction) * self.velocity
-            self.y -= math.sin(self.direction) * self.velocity  # y축은 아래가 양수
-            self.velocity = max(0, self.velocity - 0.5)  # 마찰 적용
+            # 다음 위치 계산
+            next_x = self.x + math.cos(self.direction) * self.velocity
+            next_y = self.y - math.sin(self.direction) * self.velocity
+
+            # 경계 충돌 검사 및 처리
+            if next_x < 10 or next_x > 230:  # x축 경계 (공의 크기 고려)
+                self.direction = math.pi - self.direction  # x 방향 반전
+                self.velocity *= self.bounce_damping  # 속도 감소
+                next_x = max(10, min(230, next_x))  # 위치 보정
+            
+            if next_y < 10 or next_y > 230:  # y축 경계
+                self.direction = -self.direction  # y 방향 반전
+                self.velocity *= self.bounce_damping  # 속도 감소
+                next_y = max(10, min(230, next_y))  # 위치 보정
+
+            # 위치 업데이트
+            self.x = next_x
+            self.y = next_y
+            
+            # 마찰에 의한 감속
+            self.velocity = max(0, self.velocity - 0.2)
+
 
 class HoleCup:
     def __init__(self, x, y):
@@ -74,7 +94,7 @@ class Golfer:
         self.width = 100  # 크기 증가
         self.height = 150
         self.power = 0
-        self.max_power = 20
+        self.max_power = 15
         self.is_charging = False
         self.image_path = os.path.join('src', 'assets', 'images', 'player', 'golfer.png')
         self.image = self._load_image(self.image_path)
@@ -98,6 +118,8 @@ class GameScreen:
         self.input_handler = input_handler
         self.width = 240
         self.height = 240
+        self.input_cooldown = 0  # 입력 쿨다운 타이머 추가
+        self.COOLDOWN_DURATION = 20  # 쿨다운 시간 (프레임 단위)
         
         # 게임 오브젝트 초기화
         self.background = self._load_background()
@@ -167,7 +189,7 @@ class GameScreen:
             path = os.path.join('src', 'assets', 'images', 'scores', filename)
             try:
                 image = Image.open(path)
-                target_width = int(self.width * 0.66)
+                target_width = int(self.width * 0.45)
                 ratio = target_width / image.width
                 target_height = int(image.height * ratio)
                 image = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
@@ -191,6 +213,7 @@ class GameScreen:
         self.score_image = None
         self.score_display_time = 0
         self.game_state = 'AIMING'
+        self.input_cooldown = self.COOLDOWN_DURATION  # 재시작 시 쿨다운 설정
     
     def _draw_game_info(self, draw):
         # UI 배경 (선택사항)
@@ -216,6 +239,12 @@ class GameScreen:
         inputs = self.input_handler.get_input()
         if inputs is None:
             return False
+        
+        # 쿨다운 타이머 업데이트
+        if self.input_cooldown > 0:
+            self.input_cooldown -= 1
+            # 쿨다운 중에는 A 버튼 입력 무시
+            inputs['A'] = False
 
         # B 버튼으로 일시정지 전환
         if inputs['B']:
@@ -224,6 +253,7 @@ class GameScreen:
                 self.game_state = 'PAUSED'
             else:
                 self.game_state = self.previous_state
+                self.input_cooldown = self.COOLDOWN_DURATION  # 일시정지 해제 시 쿨다운 설정
             return True
 
         if self.game_state == 'PAUSED':
@@ -245,7 +275,7 @@ class GameScreen:
         elif self.game_state == 'CHARGING':
             self.golfer.update_power()
             if not inputs['A']:  # A 버튼을 떼면 샷
-                self.ball.velocity = self.golfer.power
+                self.ball.velocity = self.golfer.power * 1.5
                 self.golfer.power = 0
                 self.golfer.is_charging = False
                 self.game_state = 'SHOOTING'
