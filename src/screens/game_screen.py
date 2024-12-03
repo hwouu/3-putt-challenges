@@ -1,4 +1,4 @@
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import os
 import math
 import pygame
@@ -16,8 +16,8 @@ class Ball:
         self.in_hole = False
         
         # 조준선 이미지 추가
-        self.aim_line_width = 50  # 더 두껍게
-        self.aim_line_height = 50  # 더 길게
+        self.aim_line_width = 15  # 더 두껍게
+        self.aim_line_height = 100  # 더 길게
         self.aim_line_path = os.path.join('src', 'assets', 'images', 'objects', 'aim_line.png')
         self.aim_line = self._load_aim_line()
         
@@ -106,8 +106,17 @@ class GameScreen:
         self.ball = Ball(self.golfer.x + 20, self.golfer.y + 20)
         self.holecup = HoleCup(120, 40)
         
-        self.game_state = 'AIMING'  # AIMING, CHARGING, SHOOTING, MOVING_GOLFER
+        self.game_state = 'AIMING'  # AIMING, CHARGING, SHOOTING, MOVING_GOLFER, PAUSED
         self.shot_count = 0
+        
+        # UI 폰트 설정
+        try:
+            self.font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
+        except IOError:
+            self.font = ImageFont.load_default()
+            
+        # 게임 정보
+        self.par = 3  # 기본 파 3
         
         # 스코어 관련 변수 추가
         self.score_image = None
@@ -117,6 +126,10 @@ class GameScreen:
         # 방향 조절 속도 설정
         self.direction_change_speed = math.pi / 180  # 1도씩 변환 (라디안)
         
+        # 일시정지 화면 로드
+        self.pause_image = self._load_pause_screen()
+        self.previous_state = None  # 일시정지 전 상태 저장용
+        
         # 스코어 이미지 미리 로드
         self.score_images = self._load_score_images()
     
@@ -124,6 +137,20 @@ class GameScreen:
         bg_path = os.path.join('src', 'assets', 'images', 'course', 'background.png')
         bg = Image.open(bg_path)
         return bg.resize((self.width, self.height), Image.Resampling.LANCZOS)
+    
+    def _load_pause_screen(self):
+        """일시정지 화면 이미지를 로드합니다."""
+        path = os.path.join('src', 'assets', 'images', 'ui', 'pause_screen.png')
+        try:
+            image = Image.open(path)
+            return image.resize((self.width, self.height), Image.Resampling.LANCZOS)
+        except Exception as e:
+            print(f"Error loading pause screen: {e}")
+            # 대체 이미지 생성
+            image = Image.new('RGB', (self.width, self.height), (0, 0, 0))
+            draw = ImageDraw.Draw(image)
+            draw.text((self.width//2-30, self.height//2), "PAUSE", fill=(255, 255, 255))
+            return image
 
     def _load_score_images(self):
         scores = {
@@ -155,11 +182,54 @@ class GameScreen:
         if self.shot_count in self.score_images:
             self.score_image = self.score_images[self.shot_count]
             self.score_display_time = self.SCORE_DISPLAY_DURATION
+            
+    def _restart_game(self):
+        """게임을 초기 상태로 재설정합니다."""
+        self.golfer = Golfer(100, 180)
+        self.ball = Ball(self.golfer.x + 20, self.golfer.y + 20)
+        self.shot_count = 0
+        self.score_image = None
+        self.score_display_time = 0
+        self.game_state = 'AIMING'
+    
+    def _draw_game_info(self, draw):
+        # UI 배경 (선택사항)
+        padding = 5
+        text_color = (255, 255, 255)  # 흰색
+        shadow_color = (0, 0, 0)      # 그림자 색상
+        
+        # PAR 정보
+        par_text = f"PAR {self.par}"
+        # 그림자 효과
+        draw.text((self.width - 80 + 1, 10 + 1), par_text, font=self.font, fill=shadow_color)
+        # 실제 텍스트
+        draw.text((self.width - 80, 10), par_text, font=self.font, fill=text_color)
+        
+        # SHOT 정보
+        shot_text = f"SHOT {self.shot_count}"
+        # 그림자 효과
+        draw.text((self.width - 80 + 1, 35 + 1), shot_text, font=self.font, fill=shadow_color)
+        # 실제 텍스트
+        draw.text((self.width - 80, 35), shot_text, font=self.font, fill=text_color)
     
     def update(self):
         inputs = self.input_handler.get_input()
         if inputs is None:
             return False
+
+        # B 버튼으로 일시정지 전환
+        if inputs['B']:
+            if self.game_state != 'PAUSED':
+                self.previous_state = self.game_state
+                self.game_state = 'PAUSED'
+            else:
+                self.game_state = self.previous_state
+            return True
+
+        if self.game_state == 'PAUSED':
+            if inputs['A']:  # A 버튼으로 게임 재시작
+                self._restart_game()
+            return True
 
         if self.game_state == 'AIMING':
             # 방향 조절 (좌우 키)
@@ -208,7 +278,15 @@ class GameScreen:
     def draw(self):
         # 배경 이미지 복사
         game_image = self.background.copy()
+        draw = ImageDraw.Draw(game_image)
         
+        # UI 정보 그리기
+        self._draw_game_info(draw)
+        
+        # 일시정지 상태일 때 pause 화면 표시
+        if self.game_state == 'PAUSED':
+            return self.pause_image
+            
         # 홀컵 그리기
         game_image.paste(self.holecup.image, 
                         (int(self.holecup.x - self.holecup.width//2), 
@@ -252,6 +330,7 @@ class GameScreen:
 
         # 스코어 이미지 그리기
         if self.score_image and self.score_display_time > 0:
+            # 스코어 이미지를 화면 중앙에 배치
             score_x = (self.width - self.score_image.width) // 2
             score_y = (self.height - self.score_image.height) // 2
             game_image.paste(self.score_image, (score_x, score_y), self.score_image)
