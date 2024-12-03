@@ -1,5 +1,6 @@
 from PIL import Image
 import os
+import pygame
 
 class StartScreen:
     def __init__(self, display, input_handler):
@@ -29,4 +30,21 @@ class StartScreen:
         """시작 화면을 실행하고 사용자 입력을 기다립니다."""
         start_image = self.draw()
         self.display.show_image(start_image)
-        return self.input_handler.wait_for_any_key()
+        
+        # 시작 화면에서의 입력 처리
+        while True:
+            inputs = self.input_handler.get_input()
+            if inputs is None:
+                return False
+                
+            if any(inputs.values()):
+                # 모든 키 입력이 해제될 때까지 대기
+                while True:
+                    inputs = self.input_handler.get_input()
+                    if inputs is None:
+                        return False
+                    if not any(inputs.values()):
+                        break
+                return True
+            
+            pygame.time.delay(10)
