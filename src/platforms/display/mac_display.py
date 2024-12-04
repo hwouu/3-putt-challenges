@@ -1,9 +1,8 @@
-
 # src/platforms/display/mac_display.py
 import pygame
-from .base_display import BaseDisplay
+from src.platforms.display.base_display import BaseDisplay
 
-class MacDisplay:
+class MacDisplay(BaseDisplay):
     def __init__(self, width=240, height=240):
         self.width = width
         self.height = height
@@ -25,8 +24,9 @@ class MacDisplay:
         pygame.display.flip()
         
     def clear(self):
-        self.screen.fill((255, 255, 255))
-        pygame.display.flip()
+        if self.screen:
+            self.screen.fill((255, 255, 255))
+            pygame.display.flip()
 
     def check_quit(self):
         for event in pygame.event.get():
