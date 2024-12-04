@@ -1,3 +1,5 @@
+# src/screens/start_screen.py
+
 from PIL import Image
 import os
 import pygame
