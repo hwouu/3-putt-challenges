@@ -11,20 +11,26 @@ class PhysicsEngine:
     def add_obstacle(self, obstacle: BaseObstacle):
         self.obstacles.append(obstacle)
 
-    def update(self, ball: Ball):
-        # 장애물 업데이트 - ball이 움직이지 않아도 실행
-        for obstacle in self.obstacles:
-            obstacle.update()
-            
-        if ball.velocity > 0 and not ball.in_hole:
-            # 충돌 감지 및 처리
-            for obstacle in self.obstacles:
-                if obstacle.check_collision(ball):
-                    obstacle.handle_collision(ball)
-            
-            # 공 물리 업데이트
-            ball.velocity *= self.friction
-            ball.velocity = max(0, ball.velocity - self.gravity)
+    def update(self, ball: Ball) -> bool:
+      # 장애물 업데이트 - ball이 움직이지 않아도 실행
+      collision_occurred = False
+      
+      for obstacle in self.obstacles:
+          obstacle.update()
+          
+      if ball.velocity > 0 and not ball.in_hole:
+          # 충돌 감지 및 처리
+          for obstacle in self.obstacles:
+              if obstacle.check_collision(ball):
+                  obstacle.handle_collision(ball)
+                  collision_occurred = True
+                  break  # 하나의 충돌 처리 후 중단
+          
+          # 공 물리 업데이트
+          ball.velocity *= self.friction
+          ball.velocity = max(0, ball.velocity - self.gravity)
+
+      return collision_occurred
 
     def clear_obstacles(self):
         self.obstacles.clear()

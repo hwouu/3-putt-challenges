@@ -18,14 +18,14 @@ class GameState(Enum):
 class GameEngine:
     def __init__(self):
         self.physics_engine = PhysicsEngine()
-        self._initialize_game_objects()
-        self._initialize_game_state()
+        self._initialize_game_state()    # 순서 변경
+        self._initialize_game_objects()   # 순서 변경
         self._setup_current_course()
 
     def _initialize_game_objects(self):
-        self.golfer = Golfer(100, 180)
+        self.golfer = Golfer(60, 200) if self.current_course == 2 else Golfer(100, 180)
         self.ball = Ball(self.golfer.x + 20, self.golfer.y + 20)
-        self.holecup = HoleCup(120, 40)
+        self.holecup = HoleCup(180, 40) if self.current_course == 2 else HoleCup(120, 40)
 
     def _initialize_game_state(self):
         self.state = GameState.AIMING
@@ -38,21 +38,19 @@ class GameEngine:
         self.direction_change_speed = math.pi / 180
         self.input_cooldown = 0
         self.COOLDOWN_DURATION = 20
+        self.golfer_move_delay = 0
+        self.GOLFER_MOVE_DELAY = 90
 
     def _setup_current_course(self):
         self.physics_engine.clear_obstacles()
-
         if self.current_course == 2:
-            # 코스 2의 장애물 설정
             fence = MovingFence(120, 120, "horizontal", 2.0)
             self.physics_engine.add_obstacle(fence)
-            self.holecup = HoleCup(120, 40)
+            self.holecup = HoleCup(180, 40)
             self.par = 4
 
     def update(self, inputs):
-        # 장애물 지속적 업데이트 추가
         self.physics_engine.update(self.ball)
-
         if self.input_cooldown > 0:
             self.input_cooldown -= 1
             inputs['A'] = False
@@ -83,11 +81,8 @@ class GameEngine:
 
         return True
 
-    def _handle_pause(self):
-        if self.state != GameState.PAUSED:
-            self.previous_state = self.state
-            self.state = GameState.PAUSED
-        else:
+    def _handle_pause_state(self, inputs):
+        if inputs['B']:
             self.state = self.previous_state
             self.input_cooldown = self.COOLDOWN_DURATION
         return True
@@ -127,8 +122,13 @@ class GameEngine:
         return True
 
     def _handle_shooting(self):
+        previous_velocity = self.ball.velocity
         self.ball.update()
         self.physics_engine.update(self.ball)
+
+        # 충돌로 인한 속도 변화 감지 및 벌타 부여
+        if previous_velocity != self.ball.velocity and self.ball.velocity > 0:
+            self.shot_count += 1
 
         if self.holecup.check_ball_in_hole(self.ball):
             self.ball.in_hole = True
@@ -136,8 +136,41 @@ class GameEngine:
             return True
         
         if not self.ball.is_moving() and not self.ball.in_hole:
+            if self.golfer_move_delay < self.GOLFER_MOVE_DELAY:
+                self.golfer_move_delay += 1
+                return True
+            self.golfer_move_delay = 0
             self.state = GameState.MOVING_GOLFER
         return True
+    def _handle_shooting(self):
+        previous_velocity = self.ball.velocity
+        previous_position = (self.ball.x, self.ball.y)
+        
+        self.ball.update()
+        collision = self.physics_engine.update(self.ball)
+
+        # 장애물과 충돌했을 경우
+        if collision:
+            self.shot_count += 1  # 벌타 부여
+            # 공을 이전 위치로 되돌림
+            self.ball.x, self.ball.y = previous_position
+            self.ball.velocity = 0
+            self.state = GameState.MOVING_GOLFER
+            return True
+
+        if self.holecup.check_ball_in_hole(self.ball):
+            self.ball.in_hole = True
+            self._show_score()
+            return True
+        
+        if not self.ball.is_moving() and not self.ball.in_hole:
+            if self.golfer_move_delay < self.GOLFER_MOVE_DELAY:
+                self.golfer_move_delay += 1
+                return True
+            self.golfer_move_delay = 0
+            self.state = GameState.MOVING_GOLFER
+        return True
+
 
     def _handle_moving_golfer(self):
         self.golfer.move_to_ball(self.ball)
@@ -157,6 +190,7 @@ class GameEngine:
         self.score_display_time = 0
         self.state = GameState.AIMING
         self.input_cooldown = self.COOLDOWN_DURATION
+        self.golfer_move_delay = 0
         self._setup_current_course()
 
     def _show_score(self):
