@@ -3,6 +3,7 @@ import math
 import pygame
 from src.core.game_engine import GameEngine, GameState
 from src.utils.asset_loader import get_asset_path, load_and_resize_image
+from src.objects.obstacles.bomb import Bomb
 
 class GameScreen:
     def __init__(self, display, input_handler):
@@ -19,6 +20,7 @@ class GameScreen:
         self.next_course_image = self._load_next_course_screen()
         self.score_images = self._load_score_images()
         self.score_image = None
+        self.bomb_effect = load_and_resize_image(get_asset_path('objects', 'bomb.png'), 40, 40)  # 폭탄 이펙트 추가
         try:
             self.font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
         except IOError:
@@ -130,14 +132,25 @@ class GameScreen:
 
         # 장애물 그리기
         for obstacle in game_objects['obstacles']:
-            game_image.paste(
-                obstacle.image,
-                (
-                    int(obstacle.x - obstacle.width // 2),
-                    int(obstacle.y - obstacle.height // 2)
-                ),
-                obstacle.image
-            )
+            if isinstance(obstacle, Bomb):
+                if obstacle.is_visible:  # 트리거된 폭탄만 표시
+                    game_image.paste(
+                        self.bomb_effect,
+                        (
+                            int(obstacle.x - obstacle.width // 2),
+                            int(obstacle.y - obstacle.height // 2)
+                        ),
+                        self.bomb_effect
+                    )
+            else:  # 일반 장애물
+                game_image.paste(
+                    obstacle.image,
+                    (
+                        int(obstacle.x - obstacle.width // 2),
+                        int(obstacle.y - obstacle.height // 2)
+                    ),
+                    obstacle.image
+                )
 
         # HoleCup 그리기
         holecup = game_objects['holecup']
