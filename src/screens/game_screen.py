@@ -4,6 +4,7 @@ import pygame
 from src.core.game_engine import GameEngine, GameState
 from src.utils.asset_loader import get_asset_path, load_and_resize_image
 from src.objects.obstacles.bomb import Bomb
+from src.screens.score_card_screen import ScoreCardScreen
 
 class GameScreen:
     def __init__(self, display, input_handler):
@@ -212,12 +213,14 @@ class GameScreen:
         return game_image
 
     def run(self):
-        """게임 메인 루프를 실행합니다."""
         clock = pygame.time.Clock()
         running = True
 
         while running:
             if not self.update():
+                if self.game_engine.state == GameState.SHOW_SCORECARD:
+                    score_card_screen = ScoreCardScreen(self.display, self.input_handler, self.game_engine.score_card)
+                    score_card_screen.run()
                 running = False
 
             game_image = self.draw()
