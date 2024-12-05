@@ -15,7 +15,7 @@ class MovingFence(BaseObstacle):
         self.movement_type = movement_type
         self.speed = speed
         self.initial_position = (x, y)
-        self.movement_distance = 100  # 이동 거리
+        self.movement_distance = 160  # 기존 100에서 160으로 확장
         self.angle = 0  # 원형 이동을 위한 각도
         
         # 이동 타입에 따른 초기 설정

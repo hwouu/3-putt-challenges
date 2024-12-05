@@ -57,7 +57,7 @@ class Ball:
 
             self.x = next_x
             self.y = next_y
-            self.velocity = max(0, self.velocity - 0.5)
+            self.velocity = max(0, self.velocity - 0.3)
 
     def get_position(self):
         """공의 현재 위치를 반환합니다."""
