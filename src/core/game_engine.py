@@ -4,6 +4,7 @@ from src.objects.golfer import Golfer
 from src.objects.holecup import HoleCup
 from src.objects.obstacles.fence import MovingFence
 from src.core.physics_engine import PhysicsEngine
+from src.objects.obstacles.bomb import Bomb
 import math
 
 class GameState(Enum):
@@ -23,9 +24,18 @@ class GameEngine:
         self._setup_current_course()
 
     def _initialize_game_objects(self):
-        self.golfer = Golfer(60, 200) if self.current_course == 2 else Golfer(100, 180)
+        if self.current_course == 2:
+            self.golfer = Golfer(60, 200)
+            self.holecup = HoleCup(180, 40)
+        elif self.current_course == 3:
+            bomb1 = Bomb(120, 140)  # 중앙 위치 조정
+            bomb2 = Bomb(80, 100)   # 좌측 경로 조정
+            bomb3 = Bomb(160, 100)  # 우측 경로 조정
+        else:
+            self.golfer = Golfer(100, 180)
+            self.holecup = HoleCup(120, 40)
+        
         self.ball = Ball(self.golfer.x + 20, self.golfer.y + 20)
-        self.holecup = HoleCup(180, 40) if self.current_course == 2 else HoleCup(120, 40)
 
     def _initialize_game_state(self):
         self.state = GameState.AIMING
@@ -46,8 +56,15 @@ class GameEngine:
         if self.current_course == 2:
             fence = MovingFence(120, 120, "horizontal", 2.0)
             self.physics_engine.add_obstacle(fence)
-            self.holecup = HoleCup(180, 40)
-            self.par = 4
+            self.par = 3
+        elif self.current_course == 3:
+            bomb1 = Bomb(120, 120)  # 중앙
+            bomb2 = Bomb(90, 80)    # 좌측 상단 경로
+            bomb3 = Bomb(150, 80)   # 우측 상단 경로
+            self.physics_engine.add_obstacle(bomb1)
+            self.physics_engine.add_obstacle(bomb2)
+            self.physics_engine.add_obstacle(bomb3)
+            self.par = 3
 
     def update(self, inputs):
         self.physics_engine.update(self.ball)
@@ -123,40 +140,20 @@ class GameEngine:
 
     def _handle_shooting(self):
         previous_velocity = self.ball.velocity
-        self.ball.update()
-        self.physics_engine.update(self.ball)
-
-        # 충돌로 인한 속도 변화 감지 및 벌타 부여
-        if previous_velocity != self.ball.velocity and self.ball.velocity > 0:
-            self.shot_count += 1
-
-        if self.holecup.check_ball_in_hole(self.ball):
-            self.ball.in_hole = True
-            self._show_score()
-            return True
-        
-        if not self.ball.is_moving() and not self.ball.in_hole:
-            if self.golfer_move_delay < self.GOLFER_MOVE_DELAY:
-                self.golfer_move_delay += 1
-                return True
-            self.golfer_move_delay = 0
-            self.state = GameState.MOVING_GOLFER
-        return True
-    def _handle_shooting(self):
-        previous_velocity = self.ball.velocity
-        previous_position = (self.ball.x, self.ball.y)
+        initial_ball_position = (self.ball.x, self.ball.y)
+        initial_golfer_position = (self.golfer.x, self.golfer.y)
         
         self.ball.update()
         collision = self.physics_engine.update(self.ball)
 
-        # 장애물과 충돌했을 경우
         if collision:
-            self.shot_count += 1  # 벌타 부여
-            # 공을 이전 위치로 되돌림
-            self.ball.x, self.ball.y = previous_position
-            self.ball.velocity = 0
-            self.state = GameState.MOVING_GOLFER
-            return True
+            if isinstance(self.physics_engine.get_last_collision(), Bomb):
+                self.shot_count += 2
+                self.ball.x, self.ball.y = initial_ball_position
+                self.golfer.x, self.golfer.y = initial_golfer_position
+                self.ball.velocity = 0
+                self.state = GameState.MOVING_GOLFER
+                return True
 
         if self.holecup.check_ball_in_hole(self.ball):
             self.ball.in_hole = True
@@ -170,6 +167,7 @@ class GameEngine:
             self.golfer_move_delay = 0
             self.state = GameState.MOVING_GOLFER
         return True
+    
 
 
     def _handle_moving_golfer(self):
