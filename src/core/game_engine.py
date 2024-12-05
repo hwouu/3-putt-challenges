@@ -1,10 +1,10 @@
-# src/core/game_engine.py
-
 from enum import Enum
-from ..objects.ball import Ball
-from ..objects.golfer import Golfer
-from ..objects.holecup import HoleCup
-import math  # math 모듈 추가
+from src.objects.ball import Ball
+from src.objects.golfer import Golfer
+from src.objects.holecup import HoleCup
+from src.objects.obstacles.fence import MovingFence
+from src.core.physics_engine import PhysicsEngine
+import math
 
 class GameState(Enum):
     AIMING = "AIMING"
@@ -17,31 +17,42 @@ class GameState(Enum):
 
 class GameEngine:
     def __init__(self):
-        # 게임 오브젝트 초기화
+        self.physics_engine = PhysicsEngine()
+        self._initialize_game_objects()
+        self._initialize_game_state()
+        self._setup_current_course()
+
+    def _initialize_game_objects(self):
         self.golfer = Golfer(100, 180)
         self.ball = Ball(self.golfer.x + 20, self.golfer.y + 20)
         self.holecup = HoleCup(120, 40)
-        
-        # 게임 상태 관리
+
+    def _initialize_game_state(self):
         self.state = GameState.AIMING
         self.previous_state = None
         self.shot_count = 0
         self.current_course = 1
         self.par = 3
-        
-        # 점수 표시 관련
         self.score_display_time = 0
         self.SCORE_DISPLAY_DURATION = 120
-        
-        # 방향 변경 속도
         self.direction_change_speed = math.pi / 180
-        
-        # 입력 쿨다운
         self.input_cooldown = 0
         self.COOLDOWN_DURATION = 20
 
+    def _setup_current_course(self):
+        self.physics_engine.clear_obstacles()
+
+        if self.current_course == 2:
+            # 코스 2의 장애물 설정
+            fence = MovingFence(120, 120, "horizontal", 2.0)
+            self.physics_engine.add_obstacle(fence)
+            self.holecup = HoleCup(120, 40)
+            self.par = 4
+
     def update(self, inputs):
-        """게임 상태를 업데이트합니다."""
+        # 장애물 지속적 업데이트 추가
+        self.physics_engine.update(self.ball)
+
         if self.input_cooldown > 0:
             self.input_cooldown -= 1
             inputs['A'] = False
@@ -73,7 +84,6 @@ class GameEngine:
         return True
 
     def _handle_pause(self):
-        """일시정지 처리"""
         if self.state != GameState.PAUSED:
             self.previous_state = self.state
             self.state = GameState.PAUSED
@@ -83,7 +93,6 @@ class GameEngine:
         return True
 
     def _handle_score_display(self):
-        """점수 표시 처리"""
         if self.score_display_time > 0:
             self.score_display_time -= 1
         else:
@@ -91,7 +100,6 @@ class GameEngine:
         return True
 
     def _handle_course_transition(self, inputs):
-        """코스 전환 처리"""
         if inputs['A']:
             self._move_to_next_course()
         elif inputs['B']:
@@ -99,7 +107,6 @@ class GameEngine:
         return True
 
     def _handle_aiming(self, inputs):
-        """조준 상태 처리"""
         if inputs['left']:
             self.ball.direction += self.direction_change_speed
         if inputs['right']:
@@ -111,7 +118,6 @@ class GameEngine:
         return True
 
     def _handle_charging(self, inputs):
-        """파워 충전 상태 처리"""
         self.golfer.update_power()
         if not inputs['A']:
             power = self.golfer.stop_charging()
@@ -121,9 +127,9 @@ class GameEngine:
         return True
 
     def _handle_shooting(self):
-        """샷 진행 상태 처리"""
         self.ball.update()
-        
+        self.physics_engine.update(self.ball)
+
         if self.holecup.check_ball_in_hole(self.ball):
             self.ball.in_hole = True
             self._show_score()
@@ -134,36 +140,30 @@ class GameEngine:
         return True
 
     def _handle_moving_golfer(self):
-        """골퍼 이동 상태 처리"""
         self.golfer.move_to_ball(self.ball)
         self.state = GameState.AIMING
         return True
 
     def _move_to_next_course(self):
-        """다음 코스로 이동"""
         self.current_course += 1
         self._restart_game()
 
     def _retry_current_course(self):
-        """현재 코스 재시도"""
         self._restart_game()
 
     def _restart_game(self):
-        """게임 상태 초기화"""
-        self.golfer = Golfer(100, 180)
-        self.ball = Ball(self.golfer.x + 20, self.golfer.y + 20)
+        self._initialize_game_objects()
         self.shot_count = 0
         self.score_display_time = 0
         self.state = GameState.AIMING
         self.input_cooldown = self.COOLDOWN_DURATION
+        self._setup_current_course()
 
     def _show_score(self):
-        """점수 표시 시작"""
         self.score_display_time = self.SCORE_DISPLAY_DURATION
         self.state = GameState.SHOWING_SCORE
 
     def get_game_objects(self):
-        """현재 게임 오브젝트들의 상태를 반환"""
         return {
             'golfer': self.golfer,
             'ball': self.ball,
@@ -171,5 +171,6 @@ class GameEngine:
             'state': self.state,
             'shot_count': self.shot_count,
             'current_course': self.current_course,
-            'score_display_time': self.score_display_time
+            'score_display_time': self.score_display_time,
+            'obstacles': self.physics_engine.obstacles
         }
