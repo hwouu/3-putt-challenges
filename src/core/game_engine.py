@@ -28,9 +28,8 @@ class GameEngine:
             self.golfer = Golfer(60, 200)
             self.holecup = HoleCup(180, 40)
         elif self.current_course == 3:
-            bomb1 = Bomb(120, 140)  # 중앙 위치 조정
-            bomb2 = Bomb(80, 100)   # 좌측 경로 조정
-            bomb3 = Bomb(160, 100)  # 우측 경로 조정
+            self.golfer = Golfer(180, 200)  # 오른쪽 하단
+            self.holecup = HoleCup(60, 40)   # 왼쪽 상단
         else:
             self.golfer = Golfer(100, 180)
             self.holecup = HoleCup(120, 40)
@@ -56,7 +55,7 @@ class GameEngine:
         if self.current_course == 2:
             fence = MovingFence(120, 120, "horizontal", 2.0)
             self.physics_engine.add_obstacle(fence)
-            self.par = 3
+            self.par = 4
         elif self.current_course == 3:
             bomb1 = Bomb(120, 120)  # 중앙
             bomb2 = Bomb(90, 80)    # 좌측 상단 경로
@@ -64,7 +63,7 @@ class GameEngine:
             self.physics_engine.add_obstacle(bomb1)
             self.physics_engine.add_obstacle(bomb2)
             self.physics_engine.add_obstacle(bomb3)
-            self.par = 3
+            self.par = 5
 
     def update(self, inputs):
         self.physics_engine.update(self.ball)
