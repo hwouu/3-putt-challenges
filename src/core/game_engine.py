@@ -5,6 +5,7 @@ from src.objects.holecup import HoleCup
 from src.objects.obstacles.fence import MovingFence
 from src.core.physics_engine import PhysicsEngine
 from src.objects.obstacles.bomb import Bomb
+from src.models.score_card import ScoreCard
 import math
 
 class GameState(Enum):
@@ -15,12 +16,14 @@ class GameState(Enum):
     SHOWING_SCORE = "SHOWING_SCORE"
     COURSE_TRANSITION = "COURSE_TRANSITION"
     PAUSED = "PAUSED"
+    SHOW_SCORECARD = "SHOW_SCORECARD"
 
 class GameEngine:
     def __init__(self):
         self.physics_engine = PhysicsEngine()
-        self._initialize_game_state()    # 순서 변경
-        self._initialize_game_objects()   # 순서 변경
+        self.score_card = ScoreCard()
+        self._initialize_game_state()
+        self._initialize_game_objects()
         self._setup_current_course()
 
     def _initialize_game_objects(self):
@@ -28,8 +31,8 @@ class GameEngine:
             self.golfer = Golfer(60, 200)
             self.holecup = HoleCup(180, 40)
         elif self.current_course == 3:
-            self.golfer = Golfer(180, 200)  # 오른쪽 하단
-            self.holecup = HoleCup(60, 40)   # 왼쪽 상단
+            self.golfer = Golfer(180, 200)
+            self.holecup = HoleCup(60, 40)
         else:
             self.golfer = Golfer(100, 180)
             self.holecup = HoleCup(120, 40)
@@ -55,15 +58,15 @@ class GameEngine:
         if self.current_course == 2:
             fence = MovingFence(120, 120, "horizontal", 2.0)
             self.physics_engine.add_obstacle(fence)
-            self.par = 4
+            self.par = 3
         elif self.current_course == 3:
-            bomb1 = Bomb(120, 120)  # 중앙
-            bomb2 = Bomb(90, 80)    # 좌측 상단 경로
-            bomb3 = Bomb(150, 80)   # 우측 상단 경로
+            bomb1 = Bomb(120, 120)
+            bomb2 = Bomb(90, 80)
+            bomb3 = Bomb(150, 80)
             self.physics_engine.add_obstacle(bomb1)
             self.physics_engine.add_obstacle(bomb2)
             self.physics_engine.add_obstacle(bomb3)
-            self.par = 5
+            self.par = 3
 
     def update(self, inputs):
         self.physics_engine.update(self.ball)
@@ -71,8 +74,14 @@ class GameEngine:
             self.input_cooldown -= 1
             inputs['A'] = False
 
+        if self.state == GameState.SHOW_SCORECARD:
+            return False
+
         if inputs['B'] and self.state not in [GameState.SHOWING_SCORE, GameState.COURSE_TRANSITION]:
-            return self._handle_pause()
+            if self.state != GameState.PAUSED:
+                self.previous_state = self.state
+                self.state = GameState.PAUSED
+            return True
 
         if self.state == GameState.SHOWING_SCORE:
             return self._handle_score_display()
@@ -99,15 +108,23 @@ class GameEngine:
 
     def _handle_pause_state(self, inputs):
         if inputs['B']:
-            self.state = self.previous_state
-            self.input_cooldown = self.COOLDOWN_DURATION
+            if self.previous_state:
+                self.state = self.previous_state
+                self.previous_state = None
+                return True
+        elif inputs['A']:
+            self._restart_current_course()
+            self.state = GameState.AIMING
         return True
 
     def _handle_score_display(self):
         if self.score_display_time > 0:
             self.score_display_time -= 1
         else:
-            self.state = GameState.COURSE_TRANSITION
+            if self.current_course == 3:
+                self.state = GameState.SHOW_SCORECARD 
+            else:
+                self.state = GameState.COURSE_TRANSITION
         return True
 
     def _handle_course_transition(self, inputs):
@@ -148,11 +165,19 @@ class GameEngine:
         if collision:
             if isinstance(self.physics_engine.get_last_collision(), Bomb):
                 self.shot_count += 2
-                self.ball.x, self.ball.y = initial_ball_position
-                self.golfer.x, self.golfer.y = initial_golfer_position
-                self.ball.velocity = 0
-                self.state = GameState.MOVING_GOLFER
+            elif isinstance(self.physics_engine.get_last_collision(), MovingFence):
+                self.shot_count += 1
+                
+            self.ball.x, self.ball.y = initial_ball_position
+            self.golfer.x, self.golfer.y = initial_golfer_position
+            self.ball.velocity = 0
+            
+            if self.shot_count >= self.par * 2:
+                self._show_score()
                 return True
+            
+            self.state = GameState.MOVING_GOLFER
+            return True
 
         if self.holecup.check_ball_in_hole(self.ball):
             self.ball.in_hole = True
@@ -160,14 +185,16 @@ class GameEngine:
             return True
         
         if not self.ball.is_moving() and not self.ball.in_hole:
+            if self.shot_count >= self.par * 2:
+                self._show_score()
+                return True
+                
             if self.golfer_move_delay < self.GOLFER_MOVE_DELAY:
                 self.golfer_move_delay += 1
                 return True
             self.golfer_move_delay = 0
             self.state = GameState.MOVING_GOLFER
         return True
-    
-
 
     def _handle_moving_golfer(self):
         self.golfer.move_to_ball(self.ball)
@@ -175,6 +202,10 @@ class GameEngine:
         return True
 
     def _move_to_next_course(self):
+        if self.current_course == 3:
+            self.state = GameState.SHOW_SCORECARD
+            return
+        
         self.current_course += 1
         self._restart_game()
 
@@ -190,9 +221,18 @@ class GameEngine:
         self.golfer_move_delay = 0
         self._setup_current_course()
 
+    def _restart_current_course(self):
+        self._initialize_game_objects()
+        self.shot_count = 0
+        self.score_display_time = 0
+        self.input_cooldown = self.COOLDOWN_DURATION
+        self.golfer_move_delay = 0
+        self._setup_current_course()
+
     def _show_score(self):
         self.score_display_time = self.SCORE_DISPLAY_DURATION
         self.state = GameState.SHOWING_SCORE
+        self.score_card.add_score(self.current_course, self.shot_count)
 
     def get_game_objects(self):
         return {
