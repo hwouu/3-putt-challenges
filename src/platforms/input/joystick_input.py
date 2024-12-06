@@ -4,69 +4,62 @@ from src.platforms.input.base_input import BaseInput
 class JoystickInput(BaseInput):
     def __init__(self, joystick):
         self.joystick = joystick
-        self.last_press_time = {}  # 디바운싱을 위한 시간 저장
-        self.button_states = {}    # 버튼 상태 저장
-        self.DEBOUNCE_TIME = 0.05  # 50ms
-        self.debug_mode = True     # 디버그 모드 활성화
+        self.last_press_time = {}
+        self.button_states = {
+            'up': False,
+            'down': False,
+            'left': False,
+            'right': False,
+            'A': False,
+            'B': False
+        }
+        self.DEBOUNCE_TIME = 0.01  # 디바운스 시간을 줄임
+        self.debug = True
 
-    def _is_debounced(self, button_name):
-        """
-        버튼 디바운싱 처리
-        Returns:
-            bool: 디바운스 시간이 지났으면 True, 아니면 False
-        """
-        current_time = time()
-        if button_name not in self.last_press_time:
-            self.last_press_time[button_name] = current_time
-            return True
-        
-        if current_time - self.last_press_time[button_name] >= self.DEBOUNCE_TIME:
-            self.last_press_time[button_name] = current_time
-            return True
-        return False
+    def _debug_log(self, message):
+        if self.debug:
+            print(f"[JoystickInput] {message}")
 
     def get_input(self):
         """
         조이스틱의 현재 입력 상태를 반환합니다.
-        풀업 저항이 적용되어 있으므로, 버튼이 눌리면 False가 반환됩니다.
-        이를 반전시켜서 눌렸을 때 True가 되도록 합니다.
-        
-        Returns:
-            dict: 각 버튼의 상태를 담은 딕셔너리
-            None: 에러 발생 시
+        버튼이 눌린 상태를 유지합니다.
         """
         try:
-            input_state = {
-                'up': False, 'down': False,
-                'left': False, 'right': False,
-                'A': False, 'B': False
+            current_time = time()
+            raw_states = {
+                'up': not self.joystick.button_U.value,
+                'down': not self.joystick.button_D.value,
+                'left': not self.joystick.button_L.value,
+                'right': not self.joystick.button_R.value,
+                'A': not self.joystick.button_A.value,
+                'B': not self.joystick.button_B.value
             }
 
-            # 모든 버튼의 현재 상태 가져오기
-            button_values = self.joystick.get_button_states()
-            
-            # 각 버튼에 대해 처리
-            for button_name, value in button_values.items():
-                # 버튼이 눌렸을 때 (풀업 저항으로 인해 False)
-                if not value and self._is_debounced(button_name):
-                    input_state[button_name] = True
-                    if self.debug_mode:
-                        print(f"Button pressed: {button_name}")
+            # 각 버튼의 상태 업데이트
+            for button, is_pressed in raw_states.items():
+                if is_pressed:  # 버튼이 눌려있으면
+                    if not self.button_states[button]:  # 이전에 눌려있지 않았다면
+                        if button not in self.last_press_time or \
+                           current_time - self.last_press_time[button] >= self.DEBOUNCE_TIME:
+                            self.button_states[button] = True
+                            self.last_press_time[button] = current_time
+                            if self.debug:
+                                self._debug_log(f"Button {button} pressed")
+                else:  # 버튼이 눌려있지 않으면
+                    if self.button_states[button]:  # 이전에 눌려있었다면
+                        self.button_states[button] = False
+                        if self.debug:
+                            self._debug_log(f"Button {button} released")
 
-            return input_state
+            return self.button_states.copy()
 
         except Exception as e:
-            if self.debug_mode:
-                print(f"조이스틱 입력 처리 중 오류: {e}")
+            self._debug_log(f"Error in get_input: {e}")
             return None
-        
+
     def wait_for_any_key(self):
-        """
-        아무 버튼이나 눌릴 때까지 대기합니다.
-        
-        Returns:
-            bool: 입력이 감지되면 True, 오류 발생 시 False
-        """
+        """아무 버튼이나 눌릴 때까지 대기합니다."""
         try:
             while True:
                 current_input = self.get_input()
@@ -74,6 +67,5 @@ class JoystickInput(BaseInput):
                     return True
                 
         except Exception as e:
-            if self.debug_mode:
-                print(f"키 대기 중 오류: {e}")
+            self._debug_log(f"Error in wait_for_any_key: {e}")
             return False
