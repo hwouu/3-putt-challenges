@@ -1,279 +1,274 @@
-# src/core/game_engine.py
+# src/screens/game_screen.py
 
-from enum import Enum
-from src.objects.ball import Ball
-from src.objects.golfer import Golfer
-from src.objects.holecup import HoleCup
-from src.objects.obstacles.fence import MovingFence
-from src.core.physics_engine import PhysicsEngine
-from src.objects.obstacles.bomb import Bomb
-from src.models.score_card import ScoreCard
+from PIL import Image, ImageDraw, ImageFont
 import math
+import pygame
+from src.core.game_engine import GameEngine, GameState
+from src.utils.asset_loader import get_asset_path, load_and_resize_image
+from src.objects.obstacles.bomb import Bomb
+from src.screens.score_card_screen import ScoreCardScreen
 
-class GameState(Enum):
-    AIMING = "AIMING"
-    CHARGING = "CHARGING"
-    SHOOTING = "SHOOTING"
-    MOVING_GOLFER = "MOVING_GOLFER"
-    SHOWING_SCORE = "SHOWING_SCORE"
-    COURSE_TRANSITION = "COURSE_TRANSITION"
-    PAUSED = "PAUSED"
-    SHOW_SCORECARD = "SHOW_SCORECARD"
+class GameScreen:
+   def __init__(self, display, input_handler):
+       self.display = display
+       self.input_handler = input_handler
+       self.width = 240
+       self.height = 240
+       self.game_engine = GameEngine()
+       self._load_assets()
+       self.debug = True  # 디버그 모드 활성화
 
-class GameEngine:
-    def __init__(self):
-        self.physics_engine = PhysicsEngine()
-        self.score_card = ScoreCard()
-        self._initialize_game_state()
-        self._initialize_game_objects()
-        self._setup_current_course()
-        self.debug = True  # 디버그 모드 활성화
+   def _debug_log(self, message):
+       if self.debug:
+           print(f"[GameScreen] {message}")
 
-    def _initialize_game_objects(self):
-        if self.current_course == 2:
-            self.golfer = Golfer(60, 200)
-            self.holecup = HoleCup(180, 40)
-        elif self.current_course == 3:
-            self.golfer = Golfer(180, 200)
-            self.holecup = HoleCup(60, 40)
-        else:
-            self.golfer = Golfer(100, 180)
-            self.holecup = HoleCup(120, 40)
-        
-        self.ball = Ball(self.golfer.x + 20, self.golfer.y + 20)
+   def _load_assets(self):
+       self.background = self._load_background()
+       self.pause_image = self._load_pause_screen()
+       self.next_course_image = self._load_next_course_screen()
+       self.score_images = self._load_score_images()
+       self.score_image = None
+       self.bomb_effect = load_and_resize_image(get_asset_path('objects', 'bomb.png'), 40, 40)
+       try:
+           self.font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
+       except IOError:
+           self.font = ImageFont.load_default()
 
-    def _initialize_game_state(self):
-        self.state = GameState.AIMING
-        self.previous_state = None
-        self.shot_count = 0
-        self.current_course = 1
-        self.par = 3
-        self.score_display_time = 0
-        self.SCORE_DISPLAY_DURATION = 120
-        self.direction_change_speed = math.pi / 180
-        self.input_cooldown = 0
-        self.COOLDOWN_DURATION = 10  # 쿨다운 시간 감소
-        self.golfer_move_delay = 0
-        self.GOLFER_MOVE_DELAY = 90
-        self.last_input_state = {}  # 이전 입력 상태 저장
+   def _load_background(self):
+       """배경 이미지를 로드합니다."""
+       return load_and_resize_image(
+           get_asset_path('course', 'background.png'),
+           self.width,
+           self.height
+       )
 
-    def _setup_current_course(self):
-        self.physics_engine.clear_obstacles()
-        if self.current_course == 2:
-            fence = MovingFence(120, 120, "horizontal", 2.0)
-            self.physics_engine.add_obstacle(fence)
-            self.par = 3
-        elif self.current_course == 3:
-            bomb1 = Bomb(120, 120)
-            bomb2 = Bomb(90, 80)
-            bomb3 = Bomb(150, 80)
-            self.physics_engine.add_obstacle(bomb1)
-            self.physics_engine.add_obstacle(bomb2)
-            self.physics_engine.add_obstacle(bomb3)
-            self.par = 3
+   def _load_pause_screen(self):
+       """일시정지 화면 이미지를 로드합니다."""
+       try:
+           return load_and_resize_image(
+               get_asset_path('ui', 'pause_screen.png'),
+               self.width,
+               self.height
+           )
+       except Exception as e:
+           print(f"Error loading pause screen: {e}")
+           image = Image.new('RGB', (self.width, self.height), (0, 0, 0))
+           draw = ImageDraw.Draw(image)
+           draw.text((self.width // 2 - 30, self.height // 2), "PAUSE", fill=(255, 255, 255))
+           return image
 
-    def _debug_log(self, message):
-        if self.debug:
-            print(f"[GameEngine] {message}")
+   def _load_next_course_screen(self):
+       """다음 코스 화면 이미지를 로드합니다."""
+       try:
+           return load_and_resize_image(
+               get_asset_path('ui', 'next_course.png'),
+               self.width,
+               self.height
+           )
+       except Exception as e:
+           print(f"Error loading next course screen: {e}")
+           image = Image.new('RGB', (self.width, self.height), (0, 0, 0))
+           draw = ImageDraw.Draw(image)
+           draw.text((self.width // 2 - 50, self.height // 2), "NEXT COURSE", fill=(255, 255, 255))
+           return image
 
-    def update(self, inputs):
-        try:
-            self.physics_engine.update(self.ball)
-            
-            # 입력 상태 변화 감지
-            input_changes = {}
-            for key in inputs:
-                if key not in self.last_input_state or inputs[key] != self.last_input_state[key]:
-                    input_changes[key] = inputs[key]
-            
-            if input_changes and self.debug:
-                self._debug_log(f"Input changes: {input_changes}")
-                self._debug_log(f"Current state: {self.state}")
+   def _load_score_images(self):
+       """점수 관련 이미지들을 로드합니다."""
+       scores = {
+           1: 'hole_in_one.png',
+           2: 'birdie.png',
+           3: 'par.png',
+           4: 'bogey.png',
+           5: 'double_bogey.png',
+           6: 'double_par.png'
+       }
 
-            self.last_input_state = inputs.copy()
+       loaded_images = {}
+       for shots, filename in scores.items():
+           try:
+               image = Image.open(get_asset_path('scores', filename))
+               target_width = int(self.width * 0.66)
+               ratio = target_width / image.width
+               target_height = int(image.height * ratio)
+               loaded_images[shots] = image.resize(
+                   (target_width, target_height),
+                   Image.Resampling.LANCZOS
+               )
+           except Exception as e:
+               print(f"Error loading score image {filename}: {e}")
+               loaded_images[shots] = None
 
-            if self.state == GameState.SHOW_SCORECARD:
-                return False
+       return loaded_images
 
-            if inputs['B'] and self.state not in [GameState.SHOWING_SCORE, GameState.COURSE_TRANSITION]:
-                if self.state != GameState.PAUSED:
-                    self.previous_state = self.state
-                    self.state = GameState.PAUSED
-                return True
+   def _draw_game_info(self, draw):
+       """게임 정보(PAR, SHOT 등)를 화면에 그립니다."""
+       text_color = (255, 255, 255)
+       shadow_color = (0, 0, 0)
+       game_objects = self.game_engine.get_game_objects()
 
-            if self.state == GameState.SHOWING_SCORE:
-                return self._handle_score_display()
-            
-            if self.state == GameState.COURSE_TRANSITION:
-                return self._handle_course_transition(inputs)
+       par_text = f"PAR {self.game_engine.par}"
+       draw.text((self.width - 80 + 1, 10 + 1), par_text, font=self.font, fill=shadow_color)
+       draw.text((self.width - 80, 10), par_text, font=self.font, fill=text_color)
 
-            if self.state == GameState.PAUSED:
-                return self._handle_pause_state(inputs)
+       shot_text = f"SHOT {game_objects['shot_count']}"
+       draw.text((self.width - 80 + 1, 35 + 1), shot_text, font=self.font, fill=shadow_color)
+       draw.text((self.width - 80, 35), shot_text, font=self.font, fill=text_color)
 
-            if self.state == GameState.AIMING:
-                if self.input_cooldown > 0:
-                    self.input_cooldown -= 1
-                    self._debug_log(f"Cooldown: {self.input_cooldown}")
-                return self._handle_aiming(inputs)
-            
-            if self.state == GameState.CHARGING:
-                return self._handle_charging(inputs)
-            
-            if self.state == GameState.SHOOTING:
-                return self._handle_shooting()
-            
-            if self.state == GameState.MOVING_GOLFER:
-                return self._handle_moving_golfer()
+   def update(self):
+       """게임 상태를 업데이트합니다."""
+       try:
+           inputs = self.input_handler.get_input()
+           
+           if inputs is None:
+               return False
+               
+           if self.debug:
+               self._debug_log(f"Current inputs: {inputs}")
+               self._debug_log(f"Current game state: {self.game_engine.state}")
+               
+           result = self.game_engine.update(inputs)
+           
+           if self.debug:
+               self._debug_log(f"Update result: {result}")
+               
+           return result
+           
+       except Exception as e:
+           self._debug_log(f"Error in update: {e}")
+           return False
 
-            return True
-            
-        except Exception as e:
-            self._debug_log(f"Error in update: {e}")
-            return False
+   def draw(self):
+       """현재 게임 상태를 화면에 그립니다."""
+       try:
+           game_objects = self.game_engine.get_game_objects()
+           current_state = game_objects['state']
 
-    def _handle_pause_state(self, inputs):
-        if inputs['B']:
-            if self.previous_state:
-                self.state = self.previous_state
-                self.previous_state = None
-                return True
-        elif inputs['A']:
-            self._restart_current_course()
-            self.state = GameState.AIMING
-        return True
+           if current_state == GameState.PAUSED:
+               return self.pause_image
 
-    def _handle_score_display(self):
-        if self.score_display_time > 0:
-            self.score_display_time -= 1
-        else:
-            if self.current_course == 3:
-                self.state = GameState.SHOW_SCORECARD 
-            else:
-                self.state = GameState.COURSE_TRANSITION
-        return True
+           if current_state == GameState.COURSE_TRANSITION:
+               return self.next_course_image
 
-    def _handle_course_transition(self, inputs):
-        if inputs['A']:
-            self._move_to_next_course()
-        elif inputs['B']:
-            self._retry_current_course()
-        return True
+           game_image = self.background.copy()
+           draw = ImageDraw.Draw(game_image)
 
-    def _handle_aiming(self, inputs):
-        if inputs['left']:
-            self.ball.direction += self.direction_change_speed
-        if inputs['right']:
-            self.ball.direction -= self.direction_change_speed
-        
-        if inputs['A'] and self.input_cooldown == 0:
-            self._debug_log("Starting charging state")
-            self.state = GameState.CHARGING
-            self.golfer.start_charging()
-        return True
+           self._draw_game_info(draw)
 
-    def _handle_charging(self, inputs):
-        if inputs['A']:
-            self.golfer.update_power()
-            if self.debug:
-                self._debug_log(f"Charging power: {self.golfer.power}")
-        else:
-            if self.golfer.is_charging:
-                power = self.golfer.stop_charging()
-                self.ball.set_velocity(power)
-                self.state = GameState.SHOOTING
-                self.shot_count += 1
-                self.input_cooldown = self.COOLDOWN_DURATION
-                self._debug_log(f"Shot fired with power: {power}")
-        return True
+           # 장애물 그리기
+           for obstacle in game_objects['obstacles']:
+               if isinstance(obstacle, Bomb):
+                   if obstacle.is_visible:  # 트리거된 폭탄만 표시
+                       game_image.paste(
+                           self.bomb_effect,
+                           (
+                               int(obstacle.x - obstacle.width // 2),
+                               int(obstacle.y - obstacle.height // 2)
+                           ),
+                           self.bomb_effect
+                       )
+               else:  # 일반 장애물
+                   game_image.paste(
+                       obstacle.image,
+                       (
+                           int(obstacle.x - obstacle.width // 2),
+                           int(obstacle.y - obstacle.height // 2)
+                       ),
+                       obstacle.image
+                   )
 
-    def _handle_shooting(self):
-        previous_velocity = self.ball.velocity
-        initial_ball_position = (self.ball.x, self.ball.y)
-        initial_golfer_position = (self.golfer.x, self.golfer.y)
-        
-        self.ball.update()
-        collision = self.physics_engine.update(self.ball)
+           # HoleCup 그리기
+           holecup = game_objects['holecup']
+           game_image.paste(
+               holecup.image,
+               (
+                   int(holecup.x - holecup.width // 2),
+                   int(holecup.y - holecup.height // 2)
+               ),
+               holecup.image
+           )
 
-        if collision:
-            if isinstance(self.physics_engine.get_last_collision(), Bomb):
-                self.shot_count += 2
-            elif isinstance(self.physics_engine.get_last_collision(), MovingFence):
-                self.shot_count += 1
-                
-            self.ball.x, self.ball.y = initial_ball_position
-            self.golfer.x, self.golfer.y = initial_golfer_position
-            self.ball.velocity = 0
-            
-            if self.shot_count >= self.par * 2:
-                self._show_score()
-                return True
-            
-            self.state = GameState.MOVING_GOLFER
-            return True
+           ball = game_objects['ball']
+           golfer = game_objects['golfer']
 
-        if self.holecup.check_ball_in_hole(self.ball):
-            self.ball.in_hole = True
-            self._show_score()
-            return True
-        
-        if not self.ball.is_moving() and not self.ball.in_hole:
-            if self.shot_count >= self.par * 2:
-                self._show_score()
-                return True
-                
-            if self.golfer_move_delay < self.GOLFER_MOVE_DELAY:
-                self.golfer_move_delay += 1
-                return True
-            self.golfer_move_delay = 0
-            self.state = GameState.MOVING_GOLFER
-        return True
+           # 조준선 그리기
+           if current_state == GameState.AIMING and not ball.in_hole:
+               aim_line, line_width, line_height = ball.get_rotated_aim_line()
+               line_x = int(ball.x - line_width // 2)
+               line_y = int(ball.y - line_height // 2)
+               offset = ball.height // 2
+               line_y += offset
+               game_image.paste(aim_line, (line_x, line_y), aim_line)
 
-    def _handle_moving_golfer(self):
-        self.golfer.move_to_ball(self.ball)
-        self.state = GameState.AIMING
-        return True
+           # 공과 골퍼 그리기
+           if not ball.in_hole:
+               game_image.paste(
+                   ball.image,
+                   (
+                       int(ball.x - ball.width // 2),
+                       int(ball.y - ball.height // 2)
+                   ),
+                   ball.image
+               )
 
-    def _move_to_next_course(self):
-        if self.current_course == 3:
-            self.state = GameState.SHOW_SCORECARD
-            return
-        
-        self.current_course += 1
-        self._restart_game()
+               game_image.paste(
+                   golfer.image,
+                   (
+                       int(golfer.x - golfer.width // 2),
+                       int(golfer.y - golfer.height // 2)
+                   ),
+                   golfer.image
+               )
 
-    def _retry_current_course(self):
-        self._restart_game()
+           # 파워 게이지 그리기
+           if current_state == GameState.CHARGING:
+               power_height = int((golfer.power / golfer.max_power) * 50)
+               for y in range(power_height):
+                   for x in range(5):
+                       game_image.putpixel((20, 200 - y), (255, 0, 0))
 
-    def _restart_game(self):
-        self._initialize_game_objects()
-        self.shot_count = 0
-        self.score_display_time = 0
-        self.state = GameState.AIMING
-        self.input_cooldown = self.COOLDOWN_DURATION
-        self.golfer_move_delay = 0
-        self._setup_current_course()
+           # 점수 화면 그리기
+           if (current_state == GameState.SHOWING_SCORE and
+               game_objects['score_display_time'] > 0 and
+               game_objects['shot_count'] in self.score_images):
 
-    def _restart_current_course(self):
-        self._initialize_game_objects()
-        self.shot_count = 0
-        self.score_display_time = 0
-        self.input_cooldown = self.COOLDOWN_DURATION
-        self.golfer_move_delay = 0
-        self._setup_current_course()
+               score_image = self.score_images[game_objects['shot_count']]
+               if score_image:
+                   score_x = (self.width - score_image.width) // 2
+                   score_y = (self.height - score_image.height) // 2
+                   game_image.paste(score_image, (score_x, score_y), score_image)
 
-    def _show_score(self):
-        self.score_display_time = self.SCORE_DISPLAY_DURATION
-        self.state = GameState.SHOWING_SCORE
-        self.score_card.add_score(self.current_course, self.shot_count)
+           return game_image
+           
+       except Exception as e:
+           self._debug_log(f"Error in draw: {e}")
+           return self.background
 
-    def get_game_objects(self):
-        return {
-            'golfer': self.golfer,
-            'ball': self.ball,
-            'holecup': self.holecup,
-            'state': self.state,
-            'shot_count': self.shot_count,
-            'current_course': self.current_course,
-            'score_display_time': self.score_display_time,
-            'obstacles': self.physics_engine.obstacles
-        }
+   def run(self):
+       try:
+           clock = pygame.time.Clock()
+           running = True
+
+           while running:
+               if not self.update():
+                   if self.game_engine.state == GameState.SHOW_SCORECARD:
+                       score_card_screen = ScoreCardScreen(self.display, self.input_handler, self.game_engine.score_card)
+                       score_card_screen.run()
+                   running = False
+
+               game_image = self.draw()
+               self.display.show_image(game_image)
+
+               if self.display.check_quit():
+                   running = False
+                   break
+
+               clock.tick(60)
+               
+           return True
+           
+       except Exception as e:
+           self._debug_log(f"Error in run: {e}")
+           return False
+
+# 클래스를 명시적으로 내보내기
+__all__ = ['GameScreen']
